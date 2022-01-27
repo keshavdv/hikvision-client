@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
 from os.path import join, dirname
 import re
-import hikvisionapi
 
-version = hikvisionapi.__version__
+with open('hikvisionapi/__init__.py', 'r') as fd:
+    version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+                        fd.read(), re.MULTILINE).group(1)
 
 setup(name='hikvisionapi',
       version=version,
