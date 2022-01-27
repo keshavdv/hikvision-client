@@ -2,13 +2,13 @@
 
 import inspect
 import json
+from typing import Any, AsyncGenerator, AsyncIterator, Coroutine, List, Optional, Union
 from urllib.parse import urljoin
 
 import httpx
 import requests
 import xmltodict
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
-from typing import Union, Optional, Any, AsyncGenerator, AsyncIterator, List, Coroutine
 
 
 class ConvertToJsonError(Exception):
@@ -221,7 +221,7 @@ class AsyncClient:
         host: str,
         login: str,
         password: str,
-        timeout: float = 3,
+        timeout: Optional[float] = 3,
         isapi_prefix: str = "ISAPI",
     ):
         """
@@ -234,7 +234,7 @@ class AsyncClient:
         self.host: str = host
         self.login: str = login
         self.password: str = password
-        self.timeout: float = timeout
+        self.timeout: Optional[float] = timeout
         self.isapi_prefix: str = isapi_prefix
         self._auth_method: Optional[httpx._auth.Auth] = None
 
@@ -257,7 +257,12 @@ class AsyncClient:
             response.raise_for_status()
 
     async def stream_request(
-        self, method, full_url, present, **data
+        self,
+        method: str,
+        full_url: str,
+        present: str,
+        timeout: Optional[float],
+        **data,
     ) -> AsyncGenerator[Union[List[str], str], None]:
         if not self._auth_method:
             await self._detect_auth_method()
@@ -266,7 +271,7 @@ class AsyncClient:
         # there aren't any convenient multipart readers
         async with httpx.AsyncClient(auth=self._auth_method) as client:
             async with client.stream(
-                method, full_url, timeout=self.timeout, **data
+                method, full_url, timeout=timeout, **data
             ) as response:
                 buffer = ""
                 opening_tag = None
@@ -290,58 +295,65 @@ class AsyncClient:
                         buffer = "".join(events[1:])
 
     async def opaque_request(
-        self, method, full_url, present, **data
+        self,
+        method: str,
+        full_url: str,
+        present: str,
+        timeout: Optional[float],
+        **data,
     ) -> AsyncIterator[bytes]:
         if not self._auth_method:
             await self._detect_auth_method()
 
         async with httpx.AsyncClient(auth=self._auth_method) as client:
             async with client.stream(
-                method, full_url, timeout=self.timeout, **data
+                method, full_url, timeout=timeout, **data
             ) as response:
                 async for chunk in response.aiter_bytes():
                     yield chunk
 
     async def common_request(
-        self, method, full_url, present, **data
+        self,
+        method: str,
+        full_url: str,
+        present: str,
+        timeout: Optional[float],
+        **data,
     ) -> Union[List[str], str]:
         if not self._auth_method:
             await self._detect_auth_method()
 
         async with httpx.AsyncClient(auth=self._auth_method) as client:
-            response = await client.request(
-                method, full_url, timeout=self.timeout, **data
-            )
+
+            response = await client.request(method, full_url, timeout=timeout, **data)
             response.raise_for_status()
             return await async_response_parser(response, present)
 
     def request(
         self, *args, **kwargs
-    ) -> Coroutine[
-        Any,
-        Any,
-        Union[
-            List[str],
-            str,
-            AsyncIterator[bytes],
-            AsyncGenerator[Union[List[str], str], None],
-        ],
+    ) -> Union[
+        Coroutine[Any, Any, Union[List[str], str]],
+        AsyncIterator[bytes],
+        AsyncGenerator[Union[List[str], str], None],
     ]:
         url_path = list(args)
         url_path.insert(0, self.isapi_prefix)
         full_url = urljoin(self.host, "/".join(url_path))
-        method = kwargs["method"]
 
-        data = kwargs
-        present = data.pop("present", None)
-        data.pop("method")
+        method = kwargs["method"]
+        kwargs.pop("method")
+        present = kwargs.pop("present", None)
         supported_types = {
             "stream": self.stream_request,
             "opaque_data": self.opaque_request,
         }
-        return_type = data.pop("type", "").lower()
+        return_type = kwargs.pop("type", "").lower()
+        timeout = kwargs.get("timeout", self.timeout)
+        kwargs.pop("timeout", None)
 
         if return_type in supported_types and method == "get":
-            return supported_types[return_type](method, full_url, present, **data)
+            return supported_types[return_type](
+                method, full_url, present, timeout, **kwargs
+            )
         else:
-            return self.common_request(method, full_url, present, **data)
+            return self.common_request(method, full_url, present, timeout, **kwargs)
