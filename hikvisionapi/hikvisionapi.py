@@ -208,7 +208,7 @@ class AsyncClient:
 
     or as text
 
-    response = api.System.deviceInfo(method='get', present='text)
+    response = await api.System.deviceInfo(method='get', present='text)
 
     <?xml version="1.0" encoding="UTF-8" ?>
         <DeviceInfo version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
